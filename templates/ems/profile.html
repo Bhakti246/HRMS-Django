@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}My Profile | HRMS{% endblock %}
+{% block page_title %}Profile{% endblock %}
+{% block content %}
+  <section class="card profile-hero">
+    {% if employee.profile_photo %}
+      <img src="{{ employee.profile_photo.url }}" class="profile-image" alt="{{ employee.full_name }}">
+    {% else %}
+      <div class="avatar-lg">{{ employee.full_name|slice:":2"|upper }}</div>
+    {% endif %}
+    <div>
+      <h1>{{ employee.full_name }}</h1>
+      <p class="muted">{{ employee.designation }} - {{ employee.department }} - {{ employee.employee_id }}</p>
+      <span class="badge {{ employee.status }}">{{ employee.get_status_display }}</span>
+    </div>
+    <a class="btn" href="{% url 'ems:attendance' %}">Attendance history</a>
+  </section>
+
+  <div class="two-col">
+    <section class="card">
+      <div class="section-head">
+        <div>
+          <h2>Today's attendance</h2>
+          <p class="muted">Verify your employee number and DOB before recording work time.</p>
+        </div>
+        <span id="attendanceStatus" class="{% if active_session %}badge present{% elif today_attendance %}badge draft{% else %}badge{% endif %}">
+          {% if active_session %}WORKING{% elif today_attendance %}ON BREAK / COMPLETE{% else %}NOT STARTED{% endif %}
+        </span>
+      </div>
+      <div class="attendance-metrics">
+        <div><span>Working time</span><b id="workingTimer" data-start="{% if active_session %}{{ active_session.punch_in|date:'c' }}{% endif %}" data-base="{{ working_time }}" data-server-now="{{ server_now }}">{{ working_time }}</b></div>
+        <div><span>Break time</span><b id="breakTime">{{ break_time }}</b></div>
+        <div><span>Employee no.</span><b>{{ employee.employee_id }}</b></div>
+      </div>
+      <div id="attendanceMessage" hidden></div>
+      <form method="post" action="{% url 'ems:attendance_action' %}" class="verify-grid" data-attendance-form>
+        {% csrf_token %}
+        <input class="input" name="employee_id" placeholder="Employee number" required>
+        <input class="input" name="date_of_birth" type="date" required>
+        <button class="btn ghost" name="action" value="verify">Verify</button>
+        {% if active_session %}
+          <button class="btn danger" name="action" value="punch_out">Punch out</button>
+        {% else %}
+          <button class="btn primary" name="action" value="punch_in">Punch in / resume</button>
+        {% endif %}
+      </form>
+      <p class="muted small-note">The server always uses your signed-in employee profile for the attendance record.</p>
+    </section>
+
+    <section class="card">
+      <h2>Today's punch history</h2>
+      <div class="divider"></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Punch in</th><th>Punch out</th><th>Duration</th></tr></thead>
+          <tbody id="attendanceSessions">
+            {% if today_attendance %}
+              {% for session in today_attendance.sessions.all %}
+                <tr><td>{{ session.punch_in|date:"H:i" }}</td><td>{{ session.punch_out|date:"H:i"|default:"Working" }}</td><td>{{ session.duration }}</td></tr>
+              {% empty %}
+                <tr><td colspan="3" class="empty">No sessions recorded today.</td></tr>
+              {% endfor %}
+            {% else %}
+              <tr><td colspan="3" class="empty">No sessions recorded today.</td></tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <div class="two-col">
+    <section class="card">
+      <h2>Personal information</h2>
+      <div class="divider"></div>
+      <div class="info-list">
+        <div><span>Email</span><strong>{{ employee.user.email }}</strong></div>
+        <div><span>Phone</span><strong>{{ employee.phone }}</strong></div>
+        <div><span>Date of birth</span><strong>{{ employee.date_of_birth|default:"Not recorded" }}</strong></div>
+        <div><span>Emergency contact</span><strong>{{ employee.emergency_contact|default:"Not recorded" }}</strong></div>
+      </div>
+    </section>
+    <section class="card">
+      <h2>Professional information</h2>
+      <div class="divider"></div>
+      <div class="info-list">
+        <div><span>Department</span><strong>{{ employee.department }}</strong></div>
+        <div><span>Designation</span><strong>{{ employee.designation }}</strong></div>
+        <div><span>Joining date</span><strong>{{ employee.joining_date }}</strong></div>
+        <div><span>Status</span><strong>{{ employee.get_status_display }}</strong></div>
+      </div>
+    </section>
+  </div>
+{% endblock %}

@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Reports | HRMS{% endblock %}
+{% block page_title %}Reports{% endblock %}
+{% block content %}
+  <div class="page-head">
+    <div>
+      <h1>Reports</h1>
+      <p class="muted">Live workforce reporting from the current database.</p>
+    </div>
+  </div>
+  <section class="cards">
+    <div class="card stat"><span>Present records</span><b>{{ attendance_count }}</b></div>
+    <div class="card stat"><span>Payroll total</span><b>{{ payroll_total }}</b></div>
+  </section>
+  <section class="card">
+    <h2>Headcount by department</h2>
+    <div class="divider"></div>
+    {% for department in by_department %}
+      <div class="progress-row"><span>{{ department.name }}</span><strong>{{ department.total }}</strong></div>
+    {% empty %}
+      {% include "components/empty_state.html" with title="No department data" message="Add employees to produce department reporting." %}
+    {% endfor %}
+  </section>
+{% endblock %}

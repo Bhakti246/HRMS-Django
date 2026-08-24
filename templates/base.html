@@ -1,0 +1,30 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}HRMS{% endblock %}</title>
+  <link rel="stylesheet" href="{% static 'css/app.css' %}">
+</head>
+<body class="app-body">
+  {% if request.user.is_authenticated %}
+    {% include "components/sidebar.html" %}
+    <div class="app-frame">
+      {% include "components/topbar.html" %}
+      <main class="page">
+  {% else %}
+    <main class="auth-page">
+  {% endif %}
+      {% include "components/alerts.html" %}
+      {% block content %}{% endblock %}
+    </main>
+  {% if request.user.is_authenticated %}
+    </div>
+  {% else %}
+  {% endif %}
+  <script src="{% static 'js/ajax.js' %}"></script>
+  <script src="{% static 'js/app.js' %}"></script>
+  <script src="{% static 'js/attendance.js' %}"></script>
+</body>
+</html>

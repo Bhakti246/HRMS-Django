@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Sign in | HRMS{% endblock %}
+{% block content %}
+  <section class="card auth-card">
+    <div class="auth-brand">
+      <span class="brand-symbol">H</span>
+      <div>
+        <strong>HRMS</strong>
+        <small class="muted">Employee operations</small>
+      </div>
+    </div>
+    <h1>Sign in</h1>
+    <p class="muted">Access your employee workspace securely.</p>
+    {% if form.errors %}
+      <div class="toast error">Your username or password is incorrect.</div>
+    {% endif %}
+    <form method="post" class="grid">
+      {% csrf_token %}
+      <div>
+        <label for="id_username">Username or email</label>
+        <input class="input" id="id_username" name="username" autofocus required>
+      </div>
+      <div>
+        <label for="id_password">Password</label>
+        <input class="input" id="id_password" name="password" type="password" required>
+      </div>
+      <button class="btn primary">Sign in</button>
+    </form>
+  </section>
+{% endblock %}

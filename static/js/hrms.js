@@ -1,0 +1,3 @@
+document.getElementById('sidebarToggle')?.addEventListener('click',()=>document.getElementById('sidebar').classList.toggle('open'));
+document.getElementById('toggleTheme')?.addEventListener('click',()=>document.body.classList.toggle('light'));
+(()=>{const timer=document.getElementById('workingTimer');if(!timer?.dataset.start)return;const start=new Date(timer.dataset.start);const base=timer.dataset.base.split(':').map(Number);const baseSeconds=base[0]*3600+base[1]*60+base[2];const format=s=>`${String(Math.floor(s/3600)).padStart(2,'0')}:${String(Math.floor(s%3600/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;const tick=()=>timer.textContent=format(baseSeconds+Math.max(0,Math.floor((Date.now()-start.getTime())/1000)));tick();setInterval(tick,1000)})();

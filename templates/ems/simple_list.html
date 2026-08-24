@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} | HRMS{% endblock %}
+{% block page_title %}{{ title }}{% endblock %}
+{% block content %}
+  <div class="page-head">
+    <div>
+      <h1>{{ title }}</h1>
+      <p class="muted">Configure the workforce structure used by employee profiles.</p>
+    </div>
+    <a class="btn primary" href="{% if title == 'Departments' %}{% url 'ems:department_add' %}{% else %}{% url 'ems:designation_add' %}{% endif %}">Add</a>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Name</th><th>Description</th><th>Status</th><th>Actions</th></tr></thead>
+      <tbody>
+        {% for item in records %}
+          <tr>
+            <td>{{ item.name }}</td>
+            <td>{{ item.description|default:"-" }}</td>
+            <td><span class="badge {% if item.active %}active{% else %}inactive{% endif %}">{% if item.active %}Active{% else %}Inactive{% endif %}</span></td>
+            <td><a class="btn small" href="{% if title == 'Departments' %}{% url 'ems:department_edit' item.pk %}{% else %}{% url 'ems:designation_edit' item.pk %}{% endif %}">Edit</a></td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="4" class="empty">No records yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

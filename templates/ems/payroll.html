@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Payroll | HRMS{% endblock %}
+{% block page_title %}Payroll{% endblock %}
+{% block content %}
+  <div class="page-head">
+    <div>
+      <h1>Payroll</h1>
+      <p class="muted">Earnings, deductions, and attendance impact are calculated on the server.</p>
+    </div>
+    {% if is_admin %}<a class="btn primary" href="{% url 'ems:payroll_add' %}">Run payroll</a>{% endif %}
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Employee</th><th>Period</th><th>Basic</th><th>HRA</th><th>Allowances</th><th>Deductions</th><th>Attendance</th><th>Net pay</th><th>Status</th>{% if is_admin %}<th>Actions</th>{% endif %}</tr></thead>
+      <tbody>
+        {% for p in records %}
+          <tr>
+            <td>{{ p.employee.full_name }}</td>
+            <td>{{ p.pay_period|date:"F Y" }}</td>
+            <td>{{ p.basic_salary }}</td>
+            <td>{{ p.hra }}</td>
+            <td>{{ p.allowances }}</td>
+            <td>{{ p.deductions }}</td>
+            <td>{{ p.attendance_deduction }}</td>
+            <td><strong>{{ p.net_salary }}</strong></td>
+            <td><span class="badge {{ p.status }}">{{ p.get_status_display }}</span></td>
+            {% if is_admin %}<td><a class="btn small" href="{% url 'ems:payroll_edit' p.pk %}">Edit</a></td>{% endif %}
+          </tr>
+        {% empty %}
+          <tr><td colspan="10" class="empty">No payroll records have been run.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

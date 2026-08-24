@@ -1,0 +1,14 @@
+<header class="app-topbar">
+  <button class="icon-button" id="navToggle" type="button" aria-label="Open navigation">Menu</button>
+  <div>
+    <p class="eyebrow">{% if request.user.is_staff %}Admin workspace{% else %}Employee workspace{% endif %}</p>
+    <h1>{% block page_title %}HRMS{% endblock %}</h1>
+  </div>
+  <div class="topbar-user">
+    <span class="notification-pill">0 unread</span>
+    <a class="user-chip" href="{% url 'ems:profile' %}">
+      <span>{{ request.user.get_full_name|default:request.user.username|slice:":2"|upper }}</span>
+      <small>{{ request.user.get_full_name|default:request.user.username }}</small>
+    </a>
+  </div>
+</header>

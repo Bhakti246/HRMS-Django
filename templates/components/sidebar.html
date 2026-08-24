@@ -1,0 +1,30 @@
+<aside class="app-sidebar" id="appSidebar">
+  <a class="brand-mark" href="{% url 'ems:dashboard' %}" aria-label="Dashboard">
+    <span class="brand-symbol">H</span>
+    <span><strong>HRMS</strong><small>People operations</small></span>
+  </a>
+  <nav class="nav-group" aria-label="Primary navigation">
+    <a href="{% url 'ems:dashboard' %}">Dashboard</a>
+    {% if request.user.is_staff %}
+      <a href="{% url 'ems:employees' %}">Employees</a>
+      <a href="{% url 'ems:departments' %}">Departments</a>
+      <a href="{% url 'ems:designations' %}">Designations</a>
+    {% endif %}
+    <a href="{% url 'ems:attendance' %}">Attendance</a>
+    <a href="{% url 'ems:leaves' %}">Leave</a>
+    <a href="{% url 'ems:payroll' %}">Payroll</a>
+    {% if request.user.is_staff %}
+      <a href="{% url 'ems:recruitment' %}">Recruitment</a>
+      <a href="{% url 'ems:performance' %}">Performance</a>
+      <a href="{% url 'ems:reports' %}">Reports</a>
+      <a href="{% url 'ems:settings' %}">Settings</a>
+    {% endif %}
+  </nav>
+  <div class="sidebar-footer">
+    <a href="{% url 'ems:profile' %}">My profile</a>
+    <form method="post" action="{% url 'ems:logout' %}">
+      {% csrf_token %}
+      <button class="nav-action" type="submit">Sign out</button>
+    </form>
+  </div>
+</aside>

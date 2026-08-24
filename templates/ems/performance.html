@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Performance | HRMS{% endblock %}
+{% block page_title %}Performance{% endblock %}
+{% block content %}
+  <div class="page-head">
+    <div>
+      <h1>Performance reviews</h1>
+      <p class="muted">Employee review records and ratings.</p>
+    </div>
+    <a class="btn primary" href="{% url 'ems:performance_add' %}">Add review</a>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Employee</th><th>Review date</th><th>Score</th><th>Notes</th></tr></thead>
+      <tbody>
+        {% for review in reviews %}
+          <tr><td>{{ review.employee.full_name }}</td><td>{{ review.review_date }}</td><td><strong>{{ review.score }}/10</strong></td><td>{{ review.notes|default:"-" }}</td></tr>
+        {% empty %}
+          <tr><td colspan="4" class="empty">No performance reviews recorded.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

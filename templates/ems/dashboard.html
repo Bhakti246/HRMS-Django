@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% block title %}Dashboard | HRMS{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+{% block content %}
+  {% if request.user.is_staff %}
+    <div class="page-head">
+      <div>
+        <h1>Workforce overview</h1>
+        <p class="muted">Live operating numbers from employees, attendance, leave, and payroll.</p>
+      </div>
+      <a class="btn primary" href="{% url 'ems:employee_add' %}">Add employee</a>
+    </div>
+
+    <section class="cards">
+      <div class="card stat"><span>Total employees</span><b>{{ total_employees }}</b></div>
+      <div class="card stat"><span>Present today</span><b>{{ present_today }}</b></div>
+      <div class="card stat"><span>Absent today</span><b>{{ absent_today }}</b></div>
+      <div class="card stat"><span>Working now</span><b>{{ currently_working }}</b></div>
+    </section>
+
+    <div class="two-col">
+      <section class="card">
+        <div class="section-head">
+          <div>
+            <h2>Department headcount</h2>
+            <p class="muted">Active organizational structure.</p>
+          </div>
+          <span class="badge info">{{ departments }} departments</span>
+        </div>
+        {% for department in department_counts %}
+          <div class="progress-row"><span>{{ department.name }}</span><strong>{{ department.count }}</strong></div>
+        {% empty %}
+          {% include "components/empty_state.html" with title="No departments" message="Create departments to see team distribution." %}
+        {% endfor %}
+      </section>
+
+      <section class="card">
+        <div class="section-head">
+          <div>
+            <h2>Leave queue</h2>
+            <p class="muted">Recent requests needing HR review.</p>
+          </div>
+          <span class="badge warning">{{ pending_leaves }} pending</span>
+        </div>
+        {% for leave in recent_leaves %}
+          <div class="list-row">
+            <span>{{ leave.employee.full_name }}<br><small class="muted">{{ leave.get_leave_type_display }} leave</small></span>
+            <span class="badge {{ leave.status }}">{{ leave.get_status_display }}</span>
+          </div>
+        {% empty %}
+          {% include "components/empty_state.html" with title="No leave requests" message="The leave queue is clear." %}
+        {% endfor %}
+      </section>
+    </div>
+
+    <section class="cards">
+      <div class="card stat"><span>Active employees</span><b>{{ active_employees }}</b></div>
+      <div class="card stat"><span>Payroll this month</span><b>{{ payroll_total }}</b></div>
+    </section>
+  {% else %}
+    <div class="page-head">
+      <div>
+        <h1>Welcome, {{ employee.full_name }}</h1>
+        <p class="muted">{{ employee.designation }} in {{ employee.department }}.</p>
+      </div>
+      <a class="btn" href="{% url 'ems:profile' %}">Open profile</a>
+    </div>
+
+    <div class="two-col">
+      <section class="card">
+        <div class="section-head">
+          <div>
+            <h2>Today at work</h2>
+            <p class="muted">Your timer uses server punch records, not browser-only time.</p>
+          </div>
+          <span id="attendanceStatus" class="{% if active_session %}badge present{% else %}badge draft{% endif %}">
+            {% if active_session %}WORKING{% else %}ON BREAK / COMPLETE{% endif %}
+          </span>
+        </div>
+        <div class="attendance-metrics">
+          <div><span>Working time</span><b id="workingTimer" data-start="{% if active_session %}{{ active_session.punch_in|date:'c' }}{% endif %}" data-base="{{ working_time }}" data-server-now="{{ server_now }}">{{ working_time }}</b></div>
+          <div><span>Break time</span><b id="breakTime">{{ break_time }}</b></div>
+          <div><span>Employee no.</span><b>{{ employee.employee_id }}</b></div>
+        </div>
+        <p class="small-note muted">Punch controls are on your profile page so identity verification stays explicit.</p>
+      </section>
+
+      <section class="card">
+        <h2>Payroll snapshot</h2>
+        <div class="divider"></div>
+        {% if payroll %}
+          <p class="metric-value">{{ payroll.net_salary }}</p>
+          <p class="muted">{{ payroll.pay_period|date:"F Y" }} - {{ payroll.get_status_display }}</p>
+        {% else %}
+          {% include "components/empty_state.html" with title="No payroll yet" message="Payroll records will appear after HR runs payroll." %}
+        {% endif %}
+      </section>
+    </div>
+
+    <div class="two-col">
+      <section class="card">
+        <h2>Recent attendance</h2>
+        <div class="divider"></div>
+        {% for row in recent_attendance %}
+          <div class="list-row"><span>{{ row.date }}</span><span class="badge {{ row.status }}">{{ row.get_status_display }}</span></div>
+        {% empty %}
+          {% include "components/empty_state.html" with title="No attendance yet" message="Your work sessions will show here." %}
+        {% endfor %}
+      </section>
+      <section class="card">
+        <h2>Leave history</h2>
+        <div class="divider"></div>
+        {% for leave in recent_leaves %}
+          <div class="list-row"><span>{{ leave.start_date }} to {{ leave.end_date }}</span><span class="badge {{ leave.status }}">{{ leave.get_status_display }}</span></div>
+        {% empty %}
+          {% include "components/empty_state.html" with title="No leave requests" message="Apply for leave when you need time away." %}
+        {% endfor %}
+      </section>
+    </div>
+  {% endif %}
+{% endblock %}
