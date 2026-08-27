@@ -1,7 +1,9 @@
 from datetime import timedelta
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
 from django.db import models
+from django.utils import timezone
 
 
 class TimeStampedModel(models.Model):
@@ -33,7 +35,8 @@ class Employee(TimeStampedModel):
         FEMALE = "female", "Female"
         MALE = "male", "Male"
         OTHER = "other", "Other"
-    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="employee", null=True, blank=True)
+    # An employee account is never valid without its one, canonical login.
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="employee")
     employee_id = models.CharField(max_length=20, unique=True)
     department = models.ForeignKey(Department, on_delete=models.PROTECT, related_name="employees")
     designation = models.ForeignKey(Designation, on_delete=models.PROTECT, related_name="employees")
@@ -45,6 +48,13 @@ class Employee(TimeStampedModel):
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.ACTIVE)
     profile_photo = models.ImageField(upload_to="profiles/", blank=True)
     emergency_contact = models.CharField(max_length=25, blank=True)
+    def clean(self):
+        super().clean()
+        # New records are linked by EmployeeForm before save; the database
+        # non-null constraint protects direct model saves. Existing records
+        # are explicitly rejected if their link is ever missing.
+        if self.pk and not self.user_id:
+            raise ValidationError({"user": "Every employee must be linked to exactly one user account."})
     def __str__(self): return f"{self.employee_id} - {self.full_name}"
     @property
     def full_name(self): return self.user.get_full_name() if self.user else self.employee_id
@@ -61,6 +71,16 @@ class Attendance(TimeStampedModel):
     class Meta:
         constraints = [models.UniqueConstraint(fields=["employee", "date"], name="unique_employee_attendance")]
         ordering = ["-date"]
+
+    def clean(self):
+        super().clean()
+        today = timezone.localdate()
+        if self.date and self.date > today:
+            raise ValidationError({"date": "Attendance cannot be recorded for a future date."})
+        if self.check_out and not self.check_in:
+            raise ValidationError({"check_out": "Punch in is required before punch out."})
+        if self.check_in and self.check_out and self.check_out < self.check_in:
+            raise ValidationError({"check_out": "Punch out cannot be earlier than punch in."})
 
     @property
     def sessions_total(self):
@@ -90,12 +110,12 @@ class AttendanceSession(TimeStampedModel):
 
     class Meta:
         ordering = ["punch_in"]
-        constraints = [
-            models.UniqueConstraint(
-                fields=["attendance"], condition=models.Q(punch_out__isnull=True),
-                name="one_open_session_per_attendance",
-            )
-        ]
+        constraints = [models.UniqueConstraint(fields=["attendance"], name="one_session_per_attendance")]
+
+    def clean(self):
+        super().clean()
+        if self.punch_out and self.punch_out < self.punch_in:
+            raise ValidationError({"punch_out": "Punch out cannot be earlier than punch in."})
 
     @property
     def duration(self):

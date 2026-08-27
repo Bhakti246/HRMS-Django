@@ -23,7 +23,23 @@ def admin_required(view_func):
             return render(request, "403.html", status=403)
         return view_func(request, *args, **kwargs)
     return wrapped
-def employee_for(user): return get_object_or_404(Employee, user=user)
+def employee_for(user):
+    """Return the sole canonical profile, with a useful response for bad data."""
+    matches = Employee.objects.filter(user=user).select_related("user", "department", "designation")
+    if matches.count() != 1:
+        raise EmployeeProfileUnavailable
+    return matches.get()
+
+
+class EmployeeProfileUnavailable(Exception):
+    pass
+
+
+def employee_or_error(request):
+    try:
+        return employee_for(request.user)
+    except EmployeeProfileUnavailable:
+        return render(request, "ems/no_employee_profile.html", status=403)
 
 def wants_json(request):
     return request.headers.get("x-requested-with") == "XMLHttpRequest" or "application/json" in request.headers.get("accept", "")
@@ -41,7 +57,7 @@ def paginate(request, records, per_page=12):
 def attendance_payload(employee):
     today = timezone.localdate()
     attendance = Attendance.objects.filter(employee=employee, date=today).prefetch_related("sessions").first()
-    active_session = AttendanceSession.objects.filter(attendance__employee=employee, punch_out__isnull=True).select_related("attendance").first()
+    active_session = AttendanceSession.objects.filter(attendance__employee=employee, attendance__date=today, punch_out__isnull=True).select_related("attendance").first()
     sessions = []
     if attendance:
         for session in attendance.sessions.all():
@@ -75,11 +91,12 @@ def verify_employee_identity(request, employee):
 def dashboard(request):
     today = timezone.localdate()
     if not is_admin(request.user):
-        employee = employee_for(request.user)
+        employee = employee_or_error(request)
+        if not isinstance(employee, Employee): return employee
         context = {
             "employee": employee,
             "today_attendance": Attendance.objects.filter(employee=employee, date=today).prefetch_related("sessions").first(),
-            "active_session": AttendanceSession.objects.filter(attendance__employee=employee, punch_out__isnull=True).first(),
+            "active_session": AttendanceSession.objects.filter(attendance__employee=employee, attendance__date=today, punch_out__isnull=True).first(),
             "recent_attendance": employee.attendance.prefetch_related("sessions")[:5],
             "recent_leaves": employee.leave_requests.all()[:5],
             "payroll": employee.payrolls.first(),
@@ -108,15 +125,13 @@ def dashboard(request):
 
 @login_required
 def profile(request):
-    # System administrators are authenticated users, but they do not need an
-    # Employee record. Send them to their admin dashboard rather than raising
-    # a misleading 404 when they use the profile link.
+    # Administrators can legitimately exist without an Employee row. Give
+    # them a usable account profile instead of redirecting back to dashboard.
     if is_admin(request.user) and not hasattr(request.user, "employee"):
-        messages.info(request, "Administrator accounts do not have an employee profile.")
-        return redirect("ems:dashboard")
-    employee = Employee.objects.filter(user=request.user).first()
-    if not employee:
-        return render(request, "ems/no_employee_profile.html", status=403)
+        return render(request, "ems/admin_profile.html", {"account": request.user})
+    employee = employee_or_error(request)
+    if not isinstance(employee, Employee):
+        return employee
     today = timezone.localdate()
     today_attendance = Attendance.objects.filter(employee=employee, date=today).prefetch_related("sessions").first()
     active_session = AttendanceSession.objects.filter(attendance__employee=employee, punch_out__isnull=True).select_related("attendance").first()
@@ -134,7 +149,11 @@ def attendance_action(request):
         if wants_json(request):
             return json_result(False, "POST required.", 405)
         return HttpResponseForbidden("POST required")
-    employee = employee_for(request.user)
+    employee = employee_or_error(request)
+    if not isinstance(employee, Employee):
+        if wants_json(request):
+            return json_result(False, "Your account is not linked to exactly one employee profile.", 403)
+        return employee
     error = verify_employee_identity(request, employee)
     if error:
         if wants_json(request):
@@ -151,10 +170,15 @@ def attendance_action(request):
     message = "Unknown attendance action."
     status = 400
     with transaction.atomic():
-        active = AttendanceSession.objects.select_for_update().filter(attendance__employee=employee, punch_out__isnull=True).first()
+        attendance = Attendance.objects.select_for_update().filter(employee=employee, date=timezone.localdate()).first()
+        employee = Employee.objects.select_for_update().get(pk=employee.pk)
+        attendance = Attendance.objects.select_for_update().filter(employee=employee, date=timezone.localdate()).first()
+        active = AttendanceSession.objects.select_for_update().filter(attendance=attendance, punch_out__isnull=True).first() if attendance else None
         if action == "punch_in":
             if active:
                 message = "You are already working. Punch out before starting another session."
+            elif attendance and attendance.sessions.exists():
+                message = "Attendance has already been recorded for today. Multiple punch-ins are not allowed."
             elif LeaveRequest.objects.filter(employee=employee, status=LeaveRequest.Status.APPROVED, start_date__lte=timezone.localdate(), end_date__gte=timezone.localdate()).exists():
                 message = "You have approved leave for today and cannot punch in."
             else:
@@ -182,7 +206,9 @@ def attendance_action(request):
 def attendance_state(request):
     if not wants_json(request):
         return redirect("ems:profile")
-    return json_result(True, "Attendance state loaded.", data=attendance_payload(employee_for(request.user)))
+    employee = employee_or_error(request)
+    if not isinstance(employee, Employee): return json_result(False, "Employee profile unavailable.", 403)
+    return json_result(True, "Attendance state loaded.", data=attendance_payload(employee))
 
 @admin_required
 def employees(request):
@@ -239,7 +265,10 @@ def attendance(request):
     records=Attendance.objects.select_related("employee__user").prefetch_related("sessions"); target=None
     if is_admin(request.user):
         if request.GET.get("employee"): records=records.filter(employee_id=request.GET["employee"])
-    else: target=employee_for(request.user); records=records.filter(employee=target)
+    else:
+        target=employee_or_error(request)
+        if not isinstance(target, Employee): return target
+        records=records.filter(employee=target)
     if request.GET.get("date"): records=records.filter(date=request.GET["date"])
     if request.GET.get("status"): records=records.filter(status=request.GET["status"])
     if request.GET.get("q") and is_admin(request.user): records=records.filter(Q(employee__employee_id__icontains=request.GET["q"])|Q(employee__user__first_name__icontains=request.GET["q"])|Q(employee__user__last_name__icontains=request.GET["q"]))
@@ -257,12 +286,17 @@ def attendance_form(request):
 @login_required
 def leaves(request):
     records=LeaveRequest.objects.select_related("employee__user","approved_by")
-    if not is_admin(request.user): records=records.filter(employee=employee_for(request.user))
+    if not is_admin(request.user):
+        employee = employee_or_error(request)
+        if not isinstance(employee, Employee): return employee
+        records=records.filter(employee=employee)
     if request.GET.get("status"): records=records.filter(status=request.GET["status"])
     return render(request,"ems/leaves.html",{"records":records,"is_admin":is_admin(request.user)})
 @login_required
 def leave_apply(request):
-    employee=employee_for(request.user); form=LeaveForm(request.POST or None)
+    employee=employee_or_error(request)
+    if not isinstance(employee, Employee): return employee
+    form=LeaveForm(request.POST or None)
     if request.method=="POST" and form.is_valid():
         obj=form.save(commit=False); obj.employee=employee; obj.save(); messages.success(request,"Leave request submitted."); return redirect("ems:leaves")
     return render(request,"ems/form.html",{"form":form,"title":"Request Leave","cancel_url":"ems:leaves"})
@@ -279,7 +313,10 @@ def leave_decision(request,pk,status):
 @login_required
 def payroll(request):
     records=Payroll.objects.select_related("employee__user")
-    if not is_admin(request.user): records=records.filter(employee=employee_for(request.user))
+    if not is_admin(request.user):
+        employee = employee_or_error(request)
+        if not isinstance(employee, Employee): return employee
+        records=records.filter(employee=employee)
     return render(request,"ems/payroll.html",{"records":records,"is_admin":is_admin(request.user)})
 @admin_required
 def payroll_form(request,pk=None): return crud_form(request,Payroll,PayrollForm,pk,"Edit Payroll" if pk else "Run Payroll","ems:payroll")

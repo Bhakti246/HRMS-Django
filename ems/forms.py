@@ -2,6 +2,7 @@ from django import forms
 from django.contrib.auth.models import User
 from pathlib import Path
 from django.core.exceptions import ValidationError
+from django.utils import timezone
 from PIL import Image, UnidentifiedImageError
 import secrets
 from .models import Attendance, CompanySetting, Department, Designation, Employee, Job, LeaveRequest, Payroll, PerformanceReview, WorkSchedule
@@ -19,11 +20,13 @@ class EmployeeForm(StyledForm):
         widgets = {"joining_date": forms.DateInput(attrs={"type":"date"}), "date_of_birth": forms.DateInput(attrs={"type":"date"}), "address": forms.Textarea(attrs={"rows":3})}
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        if self.instance and self.instance.user:
-            self.fields["first_name"].initial = self.instance.user.first_name; self.fields["last_name"].initial = self.instance.user.last_name; self.fields["email"].initial = self.instance.user.email
+        if self.instance and self.instance.pk and self.instance.user_id:
+            user = self.instance.user
+            self.fields["first_name"].initial = user.first_name; self.fields["last_name"].initial = user.last_name; self.fields["email"].initial = user.email
     def clean_email(self):
         email = self.cleaned_data["email"]
-        if User.objects.exclude(pk=getattr(self.instance.user, "pk", None)).filter(username=email).exists(): raise ValidationError("A user with this email already exists.")
+        current_user_id = self.instance.user_id if self.instance and self.instance.pk else None
+        if User.objects.exclude(pk=current_user_id).filter(username=email).exists(): raise ValidationError("A user with this email already exists.")
         return email
     def clean_profile_photo(self):
         photo = self.cleaned_data.get("profile_photo")
@@ -48,7 +51,7 @@ class EmployeeForm(StyledForm):
         return photo
     def save(self, commit=True):
         obj = super().save(commit=False); email = self.cleaned_data["email"]
-        user = obj.user or User(username=email)
+        user = obj.user if obj.user_id else User(username=email)
         user.username=email; user.email=email; user.first_name=self.cleaned_data["first_name"]; user.last_name=self.cleaned_data["last_name"]
         if not user.pk:
             # A shared default password would let anyone who knows the demo
@@ -64,7 +67,43 @@ class DepartmentForm(StyledForm):
 class DesignationForm(StyledForm):
     class Meta: model=Designation; fields=("name","description","active"); widgets={"description":forms.Textarea(attrs={"rows":3})}
 class AttendanceForm(StyledForm):
-    class Meta: model=Attendance; fields=("employee","date","check_in","check_out","status"); widgets={"date":forms.DateInput(attrs={"type":"date"}),"check_in":forms.TimeInput(attrs={"type":"time"}),"check_out":forms.TimeInput(attrs={"type":"time"})}
+    employee_number = forms.CharField(max_length=20, label="Employee number")
+    date_of_birth = forms.DateField(widget=forms.DateInput(attrs={"type": "date"}), label="Date of birth")
+    class Meta:
+        model = Attendance
+        fields = ("employee_number", "date_of_birth", "date", "check_in", "check_out", "status")
+        widgets = {"date": forms.DateInput(attrs={"type":"date"}), "check_in": forms.TimeInput(attrs={"type":"time"}), "check_out": forms.TimeInput(attrs={"type":"time"})}
+
+    def clean(self):
+        data = super().clean()
+        employee_number = (data.get("employee_number") or "").strip().upper()
+        employee = Employee.objects.filter(employee_id__iexact=employee_number).first()
+        if employee and not employee.date_of_birth:
+            raise ValidationError(
+                "Employee {} does not have a date of birth recorded. Update that employee profile before marking attendance.".format(employee.employee_id)
+            )
+        if employee and employee.date_of_birth != data.get("date_of_birth"):
+            employee = None
+        if not employee:
+            raise ValidationError("Employee number and date of birth do not match an employee record.")
+        if employee.status != Employee.Status.ACTIVE:
+            raise ValidationError("Inactive employees cannot receive attendance.")
+        if data.get("date") and data["date"] > timezone.localdate():
+            self.add_error("date", "Attendance cannot be recorded for a future date.")
+        if employee and data.get("date") and Attendance.objects.filter(employee=employee, date=data["date"]).exclude(pk=self.instance.pk).exists():
+            self.add_error("date", "Attendance already exists for this employee and date.")
+        self.employee = employee
+        return data
+
+    def save(self, commit=True):
+        obj = super().save(commit=False)
+        obj.employee = self.employee
+        for field in ("date", "check_in", "check_out", "status"):
+            setattr(obj, field, self.cleaned_data.get(field))
+        if commit:
+            obj.full_clean()
+            obj.save()
+        return obj
 class LeaveForm(StyledForm):
     class Meta: model=LeaveRequest; fields=("leave_type","start_date","end_date","reason"); widgets={"start_date":forms.DateInput(attrs={"type":"date"}),"end_date":forms.DateInput(attrs={"type":"date"}),"reason":forms.Textarea(attrs={"rows":3})}
     def clean(self):

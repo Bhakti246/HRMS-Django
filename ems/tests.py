@@ -2,7 +2,9 @@ from datetime import date
 from django.contrib.auth.models import User
 from django.test import TestCase
 from django.urls import reverse
+from django.utils import timezone
 from .models import Attendance, AttendanceSession, Department, Designation, Employee, LeaveRequest
+from .forms import EmployeeForm
 
 
 class AttendanceWorkflowTests(TestCase):
@@ -25,7 +27,7 @@ class AttendanceWorkflowTests(TestCase):
         self.post_action("punch_out")
         self.assertEqual(AttendanceSession.objects.filter(attendance__employee=self.employee, punch_out__isnull=True).count(), 0)
         self.post_action("punch_in")
-        self.assertEqual(AttendanceSession.objects.filter(attendance__employee=self.employee).count(), 2)
+        self.assertEqual(AttendanceSession.objects.filter(attendance__employee=self.employee).count(), 1)
 
     def test_identity_and_ownership_are_enforced(self):
         self.post_action("punch_in", employee_id="OTHER-001")
@@ -47,13 +49,48 @@ class AttendanceWorkflowTests(TestCase):
         admin = User.objects.create_superuser("admin@example.test", "admin@example.test", "Password@123")
         self.client.force_login(admin)
         response = self.client.get(reverse("ems:profile"))
-        self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.url, reverse("ems:dashboard"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Administrator account")
 
     def test_logout_requires_post(self):
         self.assertEqual(self.client.get(reverse("ems:logout")).status_code, 403)
         response = self.client.post(reverse("ems:logout"))
         self.assertRedirects(response, reverse("ems:login"))
+
+    def test_future_date_and_wrong_identity_are_rejected(self):
+        response = self.post_action("punch_in", dob="1990-01-03")
+        self.assertFalse(AttendanceSession.objects.exists())
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(Attendance.objects.filter(date__gt=timezone.localdate()).exists())
+
+    def test_second_punch_in_after_punch_out_is_rejected(self):
+        self.post_action("punch_in")
+        self.post_action("punch_out")
+        response = self.post_action("punch_in")
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(AttendanceSession.objects.filter(attendance__employee=self.employee).count(), 1)
+
+    def test_employee_form_creates_the_canonical_user_link(self):
+        form = EmployeeForm(data={
+            "first_name": "New", "last_name": "Hire", "email": "new@example.test",
+            "employee_id": "TEST-002", "department": self.employee.department.pk,
+            "designation": self.employee.designation.pk, "phone": "9111111111",
+            "date_of_birth": "1992-02-03", "joining_date": str(date.today()),
+            "gender": "other", "address": "", "status": "active",
+            "emergency_contact": "",
+        })
+        self.assertTrue(form.is_valid(), form.errors)
+        employee = form.save()
+        self.assertIsNotNone(employee.user_id)
+        self.assertEqual(Employee.objects.filter(user=employee.user).count(), 1)
+
+    def test_attendance_form_reports_missing_dob(self):
+        self.employee.date_of_birth = None
+        self.employee.save(update_fields=["date_of_birth"])
+        from .forms import AttendanceForm
+        form = AttendanceForm(data={"employee_number": "TEST-001", "date_of_birth": "1990-01-02", "date": str(date.today()), "status": "present"})
+        self.assertFalse(form.is_valid())
+        self.assertIn("does not have a date of birth recorded", str(form.errors))
 
     def test_leave_decision_rejects_get_and_invalid_status(self):
         admin = User.objects.create_superuser("admin2@example.test", "admin2@example.test", "Password@123")
