@@ -25,4 +25,11 @@ class Command(BaseCommand):
             user.save(update_fields=["password"])
             self.stdout.write(self.style.SUCCESS("Initial admin account created."))
         else:
-            self.stdout.write("Admin account already exists; password was not changed.")
+            if os.environ.get("DJANGO_SUPERUSER_RESET_PASSWORD", "").lower() in {"1", "true", "yes"}:
+                user.set_password(password)
+                user.is_staff = True
+                user.is_superuser = True
+                user.save(update_fields=["password", "is_staff", "is_superuser"])
+                self.stdout.write(self.style.SUCCESS("Existing admin password was reset."))
+            else:
+                self.stdout.write("Admin account already exists; password was not changed.")

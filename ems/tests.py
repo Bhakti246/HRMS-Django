@@ -3,6 +3,8 @@ from django.contrib.auth.models import User
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
+from django.core.management import call_command
+from io import StringIO
 from .models import Attendance, AttendanceSession, Department, Designation, Employee, LeaveRequest
 from .forms import EmployeeForm
 
@@ -91,6 +93,20 @@ class AttendanceWorkflowTests(TestCase):
         form = AttendanceForm(data={"employee_number": "TEST-001", "date_of_birth": "1990-01-02", "date": str(date.today()), "status": "present"})
         self.assertFalse(form.is_valid())
         self.assertIn("does not have a date of birth recorded", str(form.errors))
+
+    def test_admin_bootstrap_can_reset_existing_password(self):
+        import os
+        admin = User.objects.create_user("render-admin", password="old-password")
+        os.environ.update({"DJANGO_SUPERUSER_USERNAME": "render-admin", "DJANGO_SUPERUSER_EMAIL": "admin@example.test", "DJANGO_SUPERUSER_PASSWORD": "new-password", "DJANGO_SUPERUSER_RESET_PASSWORD": "true"})
+        try:
+            call_command("bootstrap_admin", stdout=StringIO())
+        finally:
+            for key in ("DJANGO_SUPERUSER_USERNAME", "DJANGO_SUPERUSER_EMAIL", "DJANGO_SUPERUSER_PASSWORD", "DJANGO_SUPERUSER_RESET_PASSWORD"):
+                os.environ.pop(key, None)
+        admin.refresh_from_db()
+        self.assertTrue(admin.check_password("new-password"))
+        self.assertTrue(admin.is_staff)
+        self.assertTrue(admin.is_superuser)
 
     def test_leave_decision_rejects_get_and_invalid_status(self):
         admin = User.objects.create_superuser("admin2@example.test", "admin2@example.test", "Password@123")
