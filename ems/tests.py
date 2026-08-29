@@ -108,6 +108,11 @@ class AttendanceWorkflowTests(TestCase):
         self.assertTrue(admin.is_staff)
         self.assertTrue(admin.is_superuser)
 
+    def test_login_accepts_email(self):
+        self.client.logout()
+        response = self.client.post(reverse("ems:login"), {"username": "staff@example.test", "password": "Password@123"})
+        self.assertRedirects(response, reverse("ems:dashboard"))
+
     def test_leave_decision_rejects_get_and_invalid_status(self):
         admin = User.objects.create_superuser("admin2@example.test", "admin2@example.test", "Password@123")
         leave = LeaveRequest.objects.create(employee=self.employee, leave_type="casual", start_date=date.today(), end_date=date.today(), reason="Rest")
