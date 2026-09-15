@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Set up your company | A2Z Clicks Digital HRMS{% endblock %}
+{% block content %}
+  <section class="card setup-card auth-panel">
+    <div class="auth-brand">
+      <span class="brand-symbol">A2Z</span>
+      <div>
+        <strong>A2Z Clicks Digital</strong>
+        <small class="muted">HRMS workspace setup</small>
+      </div>
+    </div>
+    <p class="eyebrow">Step 01 / Company</p>
+    <h1>Set up your workspace</h1>
+    <p class="muted">Create your company account and become its Company Owner.</p>
+    <form method="post" enctype="multipart/form-data" class="form-grid">
+      {% csrf_token %}
+      {% for field in form %}
+        <div class="form-field{% if field.name == 'address' %} full-width{% endif %}">
+          <label for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required %} *{% endif %}</label>
+          {{ field }}
+          {% for error in field.errors %}<small class="error-text">{{ error }}</small>{% endfor %}
+        </div>
+      {% endfor %}
+      {% if form.non_field_errors %}<div class="form-field full-width">{{ form.non_field_errors }}</div>{% endif %}
+      <div class="form-field full-width">
+        <button class="btn primary" type="submit">Create company workspace</button>
+      </div>
+    </form>
+    <p class="muted setup-link">Already have an account? <a class="text-link" href="{% url 'ems:login' %}">Sign in</a></p>
+    <p class="auth-footnote">A2Z Clicks Digital HRMS</p>
+  </section>
+{% endblock %}

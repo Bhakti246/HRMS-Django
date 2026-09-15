@@ -2,20 +2,21 @@
 {% block title %}Dashboard | HRMS{% endblock %}
 {% block page_title %}Dashboard{% endblock %}
 {% block content %}
-  {% if request.user.is_staff %}
+  {% if request.is_management %}
     <div class="page-head">
       <div>
-        <h1>Workforce overview</h1>
-        <p class="muted">Live operating numbers from employees, attendance, leave, and payroll.</p>
+        <p class="eyebrow">{{ request.company.name }}</p>
+        <h1>Good morning, {{ request.user.first_name|default:request.user.username }}</h1>
+        <p class="muted">{{ dashboard_role_display }} dashboard · Here is what is happening across your organization today.</p>
       </div>
       <a class="btn primary" href="{% url 'ems:employee_add' %}">Add employee</a>
     </div>
 
     <section class="cards">
-      <div class="card stat"><span>Total employees</span><b>{{ total_employees }}</b></div>
-      <div class="card stat"><span>Present today</span><b>{{ present_today }}</b></div>
-      <div class="card stat"><span>Absent today</span><b>{{ absent_today }}</b></div>
-      <div class="card stat"><span>Working now</span><b>{{ currently_working }}</b></div>
+      <div class="card stat"><span>Employees</span><b>{{ total_employees }}</b><small class="muted">{{ active_employees }} active</small></div>
+      <div class="card stat"><span>Present today</span><b>{{ present_today }}</b><small class="muted">Attendance recorded</small></div>
+      <div class="card stat"><span>Absent today</span><b>{{ absent_today }}</b><small class="muted">Needs attention</small></div>
+      <div class="card stat"><span>Working now</span><b>{{ currently_working }}</b><small class="muted">Live sessions</small></div>
     </section>
 
     <div class="two-col">
@@ -60,8 +61,9 @@
   {% else %}
     <div class="page-head">
       <div>
-        <h1>Welcome, {{ employee.full_name }}</h1>
-        <p class="muted">{{ employee.designation }} in {{ employee.department }}.</p>
+        <p class="eyebrow">{{ employee.department }} / {{ employee.designation }}</p>
+        <h1>Good morning, {{ employee.full_name }}</h1>
+        <p class="muted">Here is your workday at {{ request.company.name }}.</p>
       </div>
       <a class="btn" href="{% url 'ems:profile' %}">Open profile</a>
     </div>
@@ -70,8 +72,8 @@
       <section class="card">
         <div class="section-head">
           <div>
-            <h2>Today at work</h2>
-            <p class="muted">Your timer uses server punch records, not browser-only time.</p>
+            <h2>Today's attendance</h2>
+              <p class="muted">Your timer is reconstructed from secure server timestamps.</p>
           </div>
           <span id="attendanceStatus" class="{% if active_session %}badge present{% else %}badge draft{% endif %}">
             {% if active_session %}WORKING{% else %}ON BREAK / COMPLETE{% endif %}

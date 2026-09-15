@@ -5,7 +5,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}HRMS{% endblock %}</title>
-  <link rel="stylesheet" href="{% static 'css/app.css' %}">
+  <link rel="stylesheet" href="{% static 'css/app.css' %}?v=20260915-a2z">
 </head>
 <body class="app-body">
   {% if request.user.is_authenticated %}
@@ -23,8 +23,8 @@
     </div>
   {% else %}
   {% endif %}
-  <script src="{% static 'js/ajax.js' %}"></script>
+  <script src="{% static 'js/ajax.js' %}?v=20260915-2"></script>
   <script src="{% static 'js/app.js' %}"></script>
-  <script src="{% static 'js/attendance.js' %}"></script>
+  <script src="{% static 'js/attendance.js' %}?v=20260915-2"></script>
 </body>
 </html>

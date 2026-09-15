@@ -4,8 +4,9 @@
 {% block content %}
   <div class="page-head">
     <div>
-      <h1>Attendance history</h1>
-      <p class="muted">{% if is_admin %}Review employee attendance with work and break totals.{% else %}Review your work sessions and daily totals.{% endif %}</p>
+      <p class="eyebrow">Time & attendance</p>
+      <h1>{% if is_admin %}Workforce attendance{% else %}My attendance{% endif %}</h1>
+      <p class="muted">{% if is_admin %}Review work sessions, break totals, and daily status across {{ request.company.name }}.{% else %}Review your work sessions and daily totals.{% endif %}</p>
     </div>
     {% if is_admin %}<a class="btn primary" href="{% url 'ems:attendance_add' %}">Mark attendance</a>{% endif %}
   </div>

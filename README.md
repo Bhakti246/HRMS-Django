@@ -20,16 +20,19 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 python manage.py migrate
-python manage.py seed_ems
 python manage.py runserver
 ```
 
-Open `http://127.0.0.1:8000/login/`.
+Open `http://127.0.0.1:8000/`. The first visit opens company setup when no active
+company exists; later visits open sign in. The setup flow creates the company,
+owner account, owner employee profile, membership, default organization records,
+and signs the owner in automatically. Existing users are routed by their active
+company membership role rather than `is_staff`.
 
-Demo accounts:
-
-- Admin: `admin@acme.test` / `Admin@123`
-- Employee: seeded employee email such as `ananya@acme.test` / `Employee@123`
+Create the first administrator through the environment-backed `bootstrap_admin`
+command, then use Django's password-reset flow to activate employee accounts. The
+optional `seed_ems` command creates demonstration records with unusable passwords;
+it never publishes shared credentials.
 
 ## Environment
 
@@ -64,7 +67,7 @@ Use HTTPS in production so secure cookies, CSRF protection, HSTS, and redirect s
 
 ## Security Notes
 
-- Admin-only URLs are protected server-side with staff checks.
+- Company membership roles protect management URLs server-side; `is_staff` alone is not authorization.
 - Employee attendance, leave, and payroll views are scoped to the logged-in employee.
 - Attendance actions do not trust submitted employee IDs; the authenticated user relationship decides ownership.
 - Profile photos are validated for extension, MIME type, and maximum size.

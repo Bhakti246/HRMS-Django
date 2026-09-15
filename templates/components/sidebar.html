@@ -1,27 +1,37 @@
 <aside class="app-sidebar" id="appSidebar">
   <a class="brand-mark" href="{% url 'ems:dashboard' %}" aria-label="Dashboard">
-    <span class="brand-symbol">H</span>
-    <span><strong>HRMS</strong><small>People operations</small></span>
+    <span class="brand-symbol">A2Z</span>
+    <span><strong>A2Z Clicks</strong><small>Digital HRMS</small></span>
   </a>
   <nav class="nav-group" aria-label="Primary navigation">
-    <a href="{% url 'ems:dashboard' %}">Dashboard</a>
-    {% if request.user.is_staff %}
-      <a href="{% url 'ems:employees' %}">Employees</a>
-      <a href="{% url 'ems:departments' %}">Departments</a>
-      <a href="{% url 'ems:designations' %}">Designations</a>
+    <span class="nav-label">Workspace</span>
+    <a data-icon="01" href="{% url 'ems:dashboard' %}">Dashboard</a>
+    {% if request.is_management %}
+      <span class="nav-label">People</span>
+      <a data-icon="02" href="{% url 'ems:employees' %}">Employees</a>
+      <a data-icon="03" href="{% url 'ems:departments' %}">Departments</a>
+      <a data-icon="04" href="{% url 'ems:designations' %}">Designations</a>
     {% endif %}
-    <a href="{% url 'ems:attendance' %}">Attendance</a>
-    <a href="{% url 'ems:leaves' %}">Leave</a>
-    <a href="{% url 'ems:payroll' %}">Payroll</a>
-    {% if request.user.is_staff %}
-      <a href="{% url 'ems:recruitment' %}">Recruitment</a>
-      <a href="{% url 'ems:performance' %}">Performance</a>
-      <a href="{% url 'ems:reports' %}">Reports</a>
-      <a href="{% url 'ems:settings' %}">Settings</a>
+    <span class="nav-label">Operations</span>
+    <a data-icon="05" href="{% url 'ems:attendance' %}">Attendance</a>
+    <a data-icon="06" href="{% url 'ems:leaves' %}">Leave</a>
+    <a data-icon="07" href="{% url 'ems:payroll' %}">Payroll</a>
+    {% if request.is_management %}
+      <span class="nav-label">Insights</span>
+      <a data-icon="08" href="{% url 'ems:recruitment' %}">Recruitment</a>
+      <a data-icon="09" href="{% url 'ems:performance' %}">Performance</a>
+      <a data-icon="10" href="{% url 'ems:reports' %}">Reports</a>
+      <span class="nav-label">Administration</span>
+      <a data-icon="11" href="{% url 'ems:settings' %}">Company settings</a>
     {% endif %}
   </nav>
+  <div class="sidebar-company">
+    <small>Current company</small>
+    {% if request.company.logo %}<img class="company-logo" src="{{ request.company.logo.url }}" alt="{{ request.company.name }} logo">{% endif %}
+    <strong>{{ request.company.name|default:"Your workspace" }}</strong>
+  </div>
   <div class="sidebar-footer">
-    <a href="{% url 'ems:profile' %}">My profile</a>
+    <a data-icon="P" href="{% url 'ems:profile' %}">My profile</a>
     <form method="post" action="{% url 'ems:logout' %}">
       {% csrf_token %}
       <button class="nav-action" type="submit">Sign out</button>

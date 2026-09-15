@@ -21,10 +21,10 @@
       <div class="section-head">
         <div>
           <h2>Today's attendance</h2>
-          <p class="muted">Verify your employee number and DOB before recording work time.</p>
+          <p class="muted">You are signed in as this employee. Attendance uses your authenticated account.</p>
         </div>
-        <span id="attendanceStatus" class="{% if active_session %}badge present{% elif today_attendance %}badge draft{% else %}badge{% endif %}">
-          {% if active_session %}WORKING{% elif today_attendance %}ON BREAK / COMPLETE{% else %}NOT STARTED{% endif %}
+        <span id="attendanceStatus" class="{% if active_session %}badge present{% elif today_attendance and not today_attendance.check_out %}badge warning{% elif today_attendance %}badge draft{% else %}badge{% endif %}">
+          {% if active_session %}WORKING{% elif today_attendance and not today_attendance.check_out %}ON BREAK{% elif today_attendance %}COMPLETED{% else %}NOT STARTED{% endif %}
         </span>
       </div>
       <div class="attendance-metrics">
@@ -33,18 +33,18 @@
         <div><span>Employee no.</span><b>{{ employee.employee_id }}</b></div>
       </div>
       <div id="attendanceMessage" hidden></div>
-      <form method="post" action="{% url 'ems:attendance_action' %}" class="verify-grid" data-attendance-form>
+      <form method="post" action="{% url 'ems:attendance_action' %}" data-attendance-url="{% url 'ems:attendance_action' %}" data-state-url="{% url 'ems:attendance_state' %}" class="verify-grid" data-attendance-form>
         {% csrf_token %}
-        <input class="input" name="employee_id" placeholder="Employee number" required>
-        <input class="input" name="date_of_birth" type="date" required>
-        <button class="btn ghost" name="action" value="verify">Verify</button>
         {% if active_session %}
+          <button class="btn" name="action" value="start_break">Start break</button>
           <button class="btn danger" name="action" value="punch_out">Punch out</button>
+        {% elif today_attendance and not today_attendance.check_out %}
+          <button class="btn primary" name="action" value="end_break">Resume work</button>
         {% else %}
-          <button class="btn primary" name="action" value="punch_in">Punch in / resume</button>
+          <button class="btn primary" name="action" value="punch_in">Punch in</button>
         {% endif %}
       </form>
-      <p class="muted small-note">The server always uses your signed-in employee profile for the attendance record.</p>
+      <p class="muted small-note">The server always uses your signed-in employee profile. No extra permission or re-entry is required.</p>
     </section>
 
     <section class="card">
@@ -66,6 +66,7 @@
           </tbody>
         </table>
       </div>
+      <a class="btn" href="{% url 'ems:password_change' %}">Change password</a>
     </section>
   </div>
 
