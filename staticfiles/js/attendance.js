@@ -5,6 +5,8 @@
   var breakTime = document.getElementById("breakTime");
   var historyBody = document.getElementById("attendanceSessions");
   var messageBox = document.getElementById("attendanceMessage");
+  var attendanceUrl = form ? form.dataset.attendanceUrl : "";
+  var stateUrl = form ? form.dataset.stateUrl : "";
   var activeStart = timer ? timer.dataset.start : "";
   var baseSeconds = timer ? parseDuration(timer.dataset.base || "00:00:00") : 0;
   var serverNow = timer ? Date.parse(timer.dataset.serverNow || "") : 0;
@@ -39,6 +41,19 @@
     messageBox.hidden = false;
   }
 
+  function showError(error) {
+    if (error && error.network) {
+      showMessage({ success: false, message: "Unable to connect to the server. Your attendance was not confirmed." });
+      return;
+    }
+    var payload = error && error.payload;
+    var message = payload && payload.message ? payload.message : (error && error.message ? error.message : "We couldn't complete your attendance request. Please try again.");
+    if (error && error.httpStatus && (!payload || !payload.message)) {
+      message += " (Server returned " + error.httpStatus + " for " + (error.requestUrl || "the attendance endpoint") + ".)";
+    }
+    showMessage({ success: false, message: message });
+  }
+
   function renderState(data) {
     if (!data) return;
     activeStart = data.active_started_at || "";
@@ -47,8 +62,8 @@
     clientStart = Date.now();
     if (breakTime) breakTime.textContent = data.break_time || "00:00:00";
     if (statusLabel) {
-      statusLabel.textContent = data.is_working ? "WORKING" : "ON BREAK / COMPLETE";
-      statusLabel.className = data.is_working ? "badge present" : "badge draft";
+      statusLabel.textContent = data.is_working ? "WORKING" : (data.is_on_break ? "ON BREAK" : (data.is_complete ? "COMPLETED" : "NOT STARTED"));
+      statusLabel.className = data.is_working ? "badge present" : (data.is_on_break ? "badge warning" : "badge draft");
     }
     if (historyBody && data.sessions) {
       historyBody.innerHTML = data.sessions.length ? data.sessions.map(function (row) {
@@ -68,16 +83,29 @@
       var submitter = event.submitter;
       if (!submitter || !submitter.name) return;
       event.preventDefault();
+      if (!attendanceUrl || attendanceUrl.indexOf("[object") !== -1) {
+        showMessage({ success: false, message: "Attendance endpoint is unavailable. Refresh the page and try again." });
+        return;
+      }
       var data = new FormData(form);
       data.set(submitter.name, submitter.value);
       submitter.disabled = true;
-      window.hrmsFetch(form.action, { method: "POST", body: data }).then(function (payload) {
+      var originalLabel = submitter.textContent;
+      submitter.textContent = "Processing...";
+      window.hrmsFetch(attendanceUrl, { method: "POST", body: data }).then(function (payload) {
         showMessage(payload);
         renderState(payload.data);
-      }).catch(function () {
-        showMessage({ success: false, message: "Attendance request failed. Try again." });
+        window.setTimeout(function () { window.location.reload(); }, 250);
+      }).catch(function (error) {
+        showError(error);
+        if (window.hrmsFetch && stateUrl) {
+          window.hrmsFetch(stateUrl, { method: "GET" }).then(function (payload) {
+            renderState(payload.data);
+          }).catch(function () {});
+        }
       }).finally(function () {
         submitter.disabled = false;
+        submitter.textContent = originalLabel;
       });
     });
   }
