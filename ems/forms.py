@@ -6,7 +6,7 @@ from django.utils import timezone
 from django.utils.text import slugify
 from django.contrib.auth.password_validation import validate_password
 from PIL import Image, UnidentifiedImageError
-from .models import Attendance, CompanyMembership, CompanySetting, Department, Designation, Employee, Job, LeaveRequest, Payroll, PerformanceReview, UserAccountProfile, WorkSchedule
+from .models import Attendance, CompanyMembership, CompanySetting, Department, Designation, Employee, EmployeeSalary, Job, LeaveRequest, Payroll, PerformanceReview, UserAccountProfile, WorkSchedule
 
 
 class CompanySetupForm(forms.Form):
@@ -240,6 +240,20 @@ class PayrollForm(StyledForm):
         company = kwargs.pop("company", None)
         super().__init__(*args, **kwargs)
         if company: self.fields["employee"].queryset = Employee.objects.filter(company=company, status=Employee.Status.ACTIVE)
+
+
+class PayrollPreviewForm(forms.Form):
+    employee = forms.ModelChoiceField(queryset=Employee.objects.none(), label="Employee")
+    pay_period = forms.DateField(input_formats=["%Y-%m", "%Y-%m-%d"], widget=forms.DateInput(attrs={"type": "month"}), label="Payroll month")
+
+    def __init__(self, *args, **kwargs):
+        company = kwargs.pop("company", None)
+        super().__init__(*args, **kwargs)
+        self.fields["employee"].queryset = Employee.objects.filter(company=company, status=Employee.Status.ACTIVE) if company else Employee.objects.none()
+
+    def clean_pay_period(self):
+        value = self.cleaned_data["pay_period"]
+        return value.replace(day=1)
 class JobForm(StyledForm):
     class Meta: model=Job; fields=("title","department","openings","applicants","stage")
     def __init__(self, *args, **kwargs):
@@ -258,4 +272,11 @@ class SettingForm(StyledForm):
 class WorkScheduleForm(StyledForm):
     class Meta:
         model = WorkSchedule
-        fields = ("expected_daily_hours", "half_day_hours", "grace_minutes", "attendance_deduction_per_absent_day", "overtime_multiplier")
+        fields = ("expected_daily_hours", "half_day_hours", "grace_minutes", "attendance_deduction_per_absent_day", "overtime_multiplier", "weekly_offs", "salary_calculation_method", "overtime_enabled")
+
+
+class EmployeeSalaryForm(StyledForm):
+    class Meta:
+        model = EmployeeSalary
+        fields = ("monthly_gross", "basic_salary", "hra", "allowances", "fixed_deductions", "bonus", "overtime_enabled", "overtime_multiplier", "effective_from")
+        widgets = {"effective_from": forms.DateInput(attrs={"type": "date"})}

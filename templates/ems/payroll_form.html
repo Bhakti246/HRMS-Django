@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Run payroll | HRMS{% endblock %}
+{% block page_title %}Payroll workspace{% endblock %}
+{% block content %}
+  <div class="page-head">
+    <div>
+      <p class="eyebrow">Payroll calculation</p>
+      <h1>Run payroll</h1>
+      <p class="muted">Select an employee and month. Attendance, leave, overtime, and deductions are calculated on the server.</p>
+    </div>
+  </div>
+  <section class="card">
+    <form method="post" class="form-grid">
+      {% csrf_token %}
+      {% for field in form %}
+        <div class="form-field">
+          <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+          {{ field }}
+          {% for error in field.errors %}<small class="error-text">{{ error }}</small>{% endfor %}
+        </div>
+      {% endfor %}
+      {% if form.non_field_errors %}<div class="form-field full-width">{{ form.non_field_errors }}</div>{% endif %}
+      <div class="form-field full-width"><button class="btn primary" type="submit">Calculate and save draft</button></div>
+    </form>
+  </section>
+  {% if calculation %}
+    <section class="cards">
+      <div class="card stat"><span>Working days</span><b>{{ calculation.summary.working_days }}</b><small class="muted">Scheduled days</small></div>
+      <div class="card stat"><span>Worked hours</span><b>{{ calculation.summary.worked_hours }}</b><small class="muted">Server attendance</small></div>
+      <div class="card stat"><span>Overtime hours</span><b>{{ calculation.summary.overtime_hours }}</b><small class="muted">Eligible overtime</small></div>
+      <div class="card stat"><span>Net payable</span><b>{{ calculation.net_pay }}</b><small class="muted">Snapshot value</small></div>
+    </section>
+    <div class="two-col">
+      <section class="card">
+        <div class="section-head"><div><h2>Earnings</h2><p class="muted">Salary and attendance-driven additions.</p></div></div>
+        <div class="info-list">
+          <div><span>Basic salary</span><strong>{{ calculation.earnings.basic_salary }}</strong></div>
+          <div><span>HRA</span><strong>{{ calculation.earnings.hra }}</strong></div>
+          <div><span>Allowances</span><strong>{{ calculation.earnings.allowances }}</strong></div>
+          <div><span>Bonus</span><strong>{{ calculation.earnings.bonus }}</strong></div>
+          <div><span>Overtime</span><strong>{{ calculation.earnings.overtime }}</strong></div>
+          <div><span>Gross earnings</span><strong>{{ calculation.earnings.gross }}</strong></div>
+        </div>
+      </section>
+      <section class="card">
+        <div class="section-head"><div><h2>Deductions</h2><p class="muted">Calculated from the selected period.</p></div></div>
+        <div class="info-list">
+          <div><span>Absent days</span><strong>{{ calculation.summary.absent_days }}</strong></div>
+          <div><span>Attendance deduction</span><strong>{{ calculation.deductions.attendance }}</strong></div>
+          <div><span>Leave deduction</span><strong>{{ calculation.deductions.leave }}</strong></div>
+          <div><span>Short hours</span><strong>{{ calculation.deductions.short_hours }}</strong></div>
+          <div><span>Fixed deductions</span><strong>{{ calculation.deductions.fixed }}</strong></div>
+          <div><span>Total deductions</span><strong>{{ calculation.deductions.total }}</strong></div>
+        </div>
+      </section>
+    </div>
+    <section class="card">
+      <div class="section-head"><div><h2>Attendance breakdown</h2><p class="muted">Every payroll date used in the calculation.</p></div></div>
+      <div class="table-wrap"><table><thead><tr><th>Date</th><th>Status</th><th>Required</th><th>Worked</th><th>Overtime</th><th>Payable</th><th>Deduction</th></tr></thead><tbody>
+        {% for row in calculation.breakdown %}<tr><td>{{ row.date }}</td><td><span class="badge {{ row.status }}">{{ row.status|title }}</span></td><td>{{ row.required_hours }}h</td><td>{{ row.worked_hours }}h</td><td>{{ row.overtime_hours }}h</td><td>{{ row.payable }}</td><td>{{ row.deduction }}</td></tr>{% endfor %}
+      </tbody></table></div>
+    </section>
+  {% endif %}
+{% endblock %}

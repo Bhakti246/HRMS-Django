@@ -164,6 +164,10 @@ class Attendance(TimeStampedModel):
         return sum((session.duration for session in self.sessions.all()), timedelta())
 
     @property
+    def completed_sessions_total(self):
+        return sum((session.duration for session in self.sessions.filter(punch_out__isnull=False)), timedelta())
+
+    @property
     def break_total(self):
         sessions = list(self.sessions.order_by("punch_in"))
         return sum((max(timedelta(), later.punch_in - earlier.punch_out) for earlier, later in zip(sessions, sessions[1:]) if earlier.punch_out), timedelta())
@@ -210,6 +214,9 @@ class WorkSchedule(TimeStampedModel):
     grace_minutes = models.PositiveIntegerField(default=0)
     attendance_deduction_per_absent_day = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     overtime_multiplier = models.DecimalField(max_digits=4, decimal_places=2, default=0)
+    weekly_offs = models.JSONField(default=list)
+    salary_calculation_method = models.CharField(max_length=20, default="working_days", choices=[("working_days", "Working days"), ("calendar_days", "Calendar days"), ("fixed_30", "Fixed 30 days")])
+    overtime_enabled = models.BooleanField(default=False)
 
     @classmethod
     def current(cls, company):
@@ -231,6 +238,7 @@ class LeaveRequest(TimeStampedModel):
     rejected_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="rejected_leaves")
     rejected_at = models.DateTimeField(null=True, blank=True)
     remarks = models.TextField(blank=True)
+    is_paid = models.BooleanField(default=True)
     class Meta:
         indexes = [models.Index(fields=["company", "employee", "status"], name="ems_leavere_company_0d4f90_idx"), models.Index(fields=["company", "start_date", "end_date"], name="ems_leavere_company_1cb1ae_idx")]
     @property
@@ -239,7 +247,7 @@ class LeaveRequest(TimeStampedModel):
 
 class Payroll(TimeStampedModel):
     class Status(models.TextChoices):
-        DRAFT="draft", "Draft"; PAID="paid", "Paid"
+        DRAFT="draft", "Draft"; CALCULATED="calculated", "Calculated"; APPROVED="approved", "Approved"; PAID="paid", "Paid"; CANCELLED="cancelled", "Cancelled"
     employee = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name="payrolls")
     company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="payrolls")
     pay_period = models.DateField(help_text="First day of the payroll month")
@@ -248,8 +256,27 @@ class Payroll(TimeStampedModel):
     allowances = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     deductions = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     bonus = models.DecimalField(max_digits=12, decimal_places=2, default=0)
-    status = models.CharField(max_length=10, choices=Status.choices, default=Status.DRAFT)
+    status = models.CharField(max_length=12, choices=Status.choices, default=Status.DRAFT)
     payment_date = models.DateField(null=True, blank=True)
+    working_days = models.PositiveIntegerField(default=0)
+    present_days = models.DecimalField(max_digits=6, decimal_places=2, default=0)
+    absent_days = models.DecimalField(max_digits=6, decimal_places=2, default=0)
+    paid_leave_days = models.DecimalField(max_digits=6, decimal_places=2, default=0)
+    unpaid_leave_days = models.DecimalField(max_digits=6, decimal_places=2, default=0)
+    half_days = models.DecimalField(max_digits=6, decimal_places=2, default=0)
+    required_hours = models.DecimalField(max_digits=8, decimal_places=2, default=0)
+    worked_hours = models.DecimalField(max_digits=8, decimal_places=2, default=0)
+    overtime_hours = models.DecimalField(max_digits=8, decimal_places=2, default=0)
+    overtime_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    attendance_deduction_snapshot = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    leave_deduction = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    gross_salary = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    total_deductions = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    net_pay = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    salary_snapshot = models.JSONField(default=dict, blank=True)
+    calculation_snapshot = models.JSONField(default=dict, blank=True)
+    calculated_at = models.DateTimeField(null=True, blank=True)
+    approved_at = models.DateTimeField(null=True, blank=True)
     class Meta:
         constraints = [models.UniqueConstraint(fields=["employee", "pay_period"], name="unique_employee_payroll")]
         ordering = ["-pay_period"]
@@ -259,10 +286,34 @@ class Payroll(TimeStampedModel):
         start = self.pay_period.replace(day=1)
         end = start.replace(day=monthrange(start.year, start.month)[1])
         absent_days = Attendance.objects.filter(company=self.company, employee=self.employee, date__range=(start, end), status=Attendance.Status.ABSENT).count()
-        return absent_days * WorkSchedule.current(self.company).attendance_deduction_per_absent_day
+        return self.attendance_deduction_snapshot or absent_days * WorkSchedule.current(self.company).attendance_deduction_per_absent_day
 
     @property
-    def net_salary(self): return self.basic_salary + self.hra + self.allowances + self.bonus - self.deductions - self.attendance_deduction
+    def net_salary(self): return self.net_pay or self.basic_salary + self.hra + self.allowances + self.bonus - self.deductions - self.attendance_deduction
+
+
+class EmployeeSalary(TimeStampedModel):
+    employee = models.OneToOneField(Employee, on_delete=models.CASCADE, related_name="salary_structure")
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="salary_structures")
+    monthly_gross = models.DecimalField(max_digits=12, decimal_places=2, default=0, validators=[MinValueValidator(0)])
+    basic_salary = models.DecimalField(max_digits=12, decimal_places=2, default=0, validators=[MinValueValidator(0)])
+    hra = models.DecimalField(max_digits=12, decimal_places=2, default=0, validators=[MinValueValidator(0)])
+    allowances = models.DecimalField(max_digits=12, decimal_places=2, default=0, validators=[MinValueValidator(0)])
+    fixed_deductions = models.DecimalField(max_digits=12, decimal_places=2, default=0, validators=[MinValueValidator(0)])
+    bonus = models.DecimalField(max_digits=12, decimal_places=2, default=0, validators=[MinValueValidator(0)])
+    overtime_enabled = models.BooleanField(default=False)
+    overtime_multiplier = models.DecimalField(max_digits=5, decimal_places=2, default=1.5, validators=[MinValueValidator(0)])
+    effective_from = models.DateField(default=timezone.localdate)
+
+
+class CompanyHoliday(TimeStampedModel):
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="holidays")
+    date = models.DateField()
+    name = models.CharField(max_length=150)
+    paid = models.BooleanField(default=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["company", "date"], name="unique_company_holiday")]
 
 
 class Job(TimeStampedModel):

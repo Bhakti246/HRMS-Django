@@ -1,12 +1,13 @@
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from django.contrib.auth.models import User
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 from django.core.management import call_command
 from io import StringIO
-from .models import Attendance, AttendanceSession, Company, CompanyMembership, Department, Designation, Employee, LeaveRequest, UserAccountProfile
+from .models import Attendance, AttendanceSession, Company, CompanyHoliday, CompanyMembership, Department, Designation, Employee, EmployeeSalary, LeaveRequest, Payroll, UserAccountProfile, WorkSchedule
 from .forms import EmployeeForm
+from .services.payroll import calculate_payroll
 
 
 class AttendanceWorkflowTests(TestCase):
@@ -88,6 +89,31 @@ class AttendanceWorkflowTests(TestCase):
         self.assertEqual(response.status_code, 409)
         self.assertEqual(response.json()["error_code"], "ALREADY_CHECKED_IN")
 
+    def test_attendance_api_returns_server_state_and_durations(self):
+        response = self.client.post(
+            reverse("ems:attendance_action"), {"action": "punch_in"}, HTTP_X_REQUESTED_WITH="XMLHttpRequest"
+        )
+        self.assertEqual(response.json()["state"], "WORKING")
+        self.assertIn("working_seconds", response.json())
+        self.client.post(reverse("ems:attendance_action"), {"action": "start_break"}, HTTP_X_REQUESTED_WITH="XMLHttpRequest")
+        response = self.client.get(reverse("ems:attendance_state"), HTTP_X_REQUESTED_WITH="XMLHttpRequest")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["state"], "ON_BREAK")
+
+    def test_working_time_base_excludes_open_session(self):
+        response = self.client.post(
+            reverse("ems:attendance_action"), {"action": "punch_in"}, HTTP_X_REQUESTED_WITH="XMLHttpRequest"
+        )
+        self.assertEqual(response.json()["working_seconds"], 0)
+        self.assertEqual(response.json()["data"]["working_time"], "00:00:00")
+
+    def test_punch_out_without_open_session_returns_conflict(self):
+        response = self.client.post(
+            reverse("ems:attendance_action"), {"action": "punch_out"}, HTTP_X_REQUESTED_WITH="XMLHttpRequest"
+        )
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["error_code"], "NO_OPEN_SESSION")
+
     def test_break_resume_and_punch_out_use_multiple_server_sessions(self):
         self.post_action("punch_in")
         self.post_action("start_break")
@@ -97,6 +123,18 @@ class AttendanceWorkflowTests(TestCase):
         self.assertEqual(AttendanceSession.objects.filter(attendance__employee=self.employee).count(), 2)
         self.post_action("punch_out")
         self.assertEqual(Attendance.objects.get(employee=self.employee, date=date.today()).check_out is not None, True)
+
+    def test_punch_in_resumes_an_open_attendance_break(self):
+        self.post_action("punch_in")
+        self.post_action("start_break")
+        response = self.client.post(
+            reverse("ems:attendance_action"),
+            {"action": "punch_in"},
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["success"])
+        self.assertEqual(AttendanceSession.objects.filter(attendance__employee=self.employee, punch_out__isnull=True).count(), 1)
 
     def test_employee_account_requires_first_password_change(self):
         form = EmployeeForm(company=self.company, data={
@@ -281,3 +319,57 @@ class CompanyOnboardingTests(TestCase):
         response = self.client.get(reverse("ems:dashboard"))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Company owner dashboard")
+
+
+class PayrollCalculationTests(TestCase):
+    def setUp(self):
+        self.company = Company.objects.create(name="Payroll Company", slug="payroll-company")
+        department = Department.objects.create(company=self.company, name="Engineering")
+        designation = Designation.objects.create(company=self.company, name="Engineer")
+        user = User.objects.create_user("payroll@example.test", password="Password@123", first_name="Pay", last_name="Roll")
+        self.employee = Employee.objects.create(company=self.company, user=user, employee_id="PAY-001", department=department, designation=designation, phone="9000000000", joining_date=date(2026, 9, 1))
+        self.membership = CompanyMembership.objects.create(user=user, company=self.company, role=CompanyMembership.Role.OWNER)
+        self.schedule = WorkSchedule.objects.create(company=self.company, expected_daily_hours=8, half_day_hours=4, weekly_offs=[6], overtime_enabled=True, overtime_multiplier=1.5)
+        EmployeeSalary.objects.create(employee=self.employee, company=self.company, monthly_gross=10000, basic_salary=6000, hra=2000, allowances=2000, fixed_deductions=100, overtime_enabled=True, overtime_multiplier=1.5, effective_from=date(2026, 1, 1))
+
+    def add_attendance(self, day, intervals):
+        attendance = Attendance.objects.create(company=self.company, employee=self.employee, date=day)
+        for start, end in intervals:
+            AttendanceSession.objects.create(attendance=attendance, employee=self.employee, punch_in=timezone.make_aware(datetime.combine(day, start)), punch_out=timezone.make_aware(datetime.combine(day, end)))
+
+    def test_multiple_sessions_and_overtime_are_calculated(self):
+        self.add_attendance(date(2026, 9, 1), [(datetime.min.time().replace(hour=9), datetime.min.time().replace(hour=13)), (datetime.min.time().replace(hour=14), datetime.min.time().replace(hour=19))])
+        result = calculate_payroll(self.employee, date(2026, 9, 1), date(2026, 9, 30))
+        self.assertEqual(result.summary["worked_hours"], 9)
+        self.assertEqual(result.summary["overtime_hours"], 1)
+        self.assertGreater(result.earnings["overtime"], 0)
+        self.assertEqual(result.salary["basic_salary"], 6000)
+
+    def test_absence_paid_leave_unpaid_leave_and_holiday(self):
+        CompanyHoliday.objects.create(company=self.company, date=date(2026, 9, 2), name="Foundation Day")
+        LeaveRequest.objects.create(company=self.company, employee=self.employee, leave_type="casual", start_date=date(2026, 9, 3), end_date=date(2026, 9, 3), reason="Paid", is_paid=True, status=LeaveRequest.Status.APPROVED)
+        LeaveRequest.objects.create(company=self.company, employee=self.employee, leave_type="sick", start_date=date(2026, 9, 4), end_date=date(2026, 9, 4), reason="Unpaid", is_paid=False, status=LeaveRequest.Status.APPROVED)
+        result = calculate_payroll(self.employee, date(2026, 9, 1), date(2026, 9, 4))
+        self.assertEqual(result.summary["paid_leave_days"], 1)
+        self.assertEqual(result.summary["unpaid_leave_days"], 1)
+        self.assertEqual(result.summary["absent_days"], 1)
+        self.assertGreater(result.deductions["leave"], 0)
+
+    def test_payroll_preview_saves_snapshot_and_is_company_scoped(self):
+        user = self.employee.user
+        self.client.force_login(user)
+        response = self.client.post(reverse("ems:payroll_add"), {"employee": self.employee.pk, "pay_period": "2026-09"})
+        self.assertRedirects(response, reverse("ems:payroll"))
+        payroll = Payroll.objects.get(employee=self.employee, company=self.company, pay_period=date(2026, 9, 1))
+        self.assertEqual(payroll.status, Payroll.Status.CALCULATED)
+        self.assertIn("breakdown", payroll.calculation_snapshot)
+
+    def test_paid_payroll_cannot_be_changed_and_employee_sees_only_own_payroll(self):
+        payroll = Payroll.objects.create(company=self.company, employee=self.employee, pay_period=date(2026, 9, 1), basic_salary=6000, hra=2000, allowances=2000, status=Payroll.Status.PAID, payment_date=date(2026, 9, 30))
+        self.client.force_login(self.employee.user)
+        response = self.client.get(reverse("ems:payroll_detail", args=[payroll.pk]))
+        self.assertEqual(response.status_code, 200)
+        other_company = Company.objects.create(name="Other Payroll", slug="other-payroll")
+        other_payroll = Payroll.objects.create(company=other_company, employee=self.employee, pay_period=date(2026, 8, 1), basic_salary=1)
+        response = self.client.get(reverse("ems:payroll_detail", args=[other_payroll.pk]))
+        self.assertEqual(response.status_code, 404)

@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Generate payroll | HRMS{% endblock %}
+{% block page_title %}Generate payroll{% endblock %}
+{% block content %}
+<section class="card">
+  <p class="eyebrow">Bulk payroll</p>
+  <h1>Generate payroll drafts</h1>
+  <p class="muted">All active employees in {{ request.company.name }} will be calculated from their salary structures, attendance, leave, and work schedule. Drafts are never marked paid automatically.</p>
+  <form method="post" class="form-grid">
+    {% csrf_token %}
+    <div class="form-field"><label for="pay_period">Payroll month</label><input class="input" id="pay_period" name="pay_period" type="month" required></div>
+    <div class="form-field"><button class="btn primary" type="submit">Generate drafts</button></div>
+  </form>
+</section>
+{% endblock %}

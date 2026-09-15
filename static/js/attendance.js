@@ -57,13 +57,14 @@
   function renderState(data) {
     if (!data) return;
     activeStart = data.active_started_at || "";
-    baseSeconds = parseDuration(data.working_time || "00:00:00");
+    baseSeconds = Number.isFinite(Number(data.working_seconds)) ? Number(data.working_seconds) : parseDuration(data.working_time || "00:00:00");
     serverNow = Date.parse(data.server_now || "");
     clientStart = Date.now();
     if (breakTime) breakTime.textContent = data.break_time || "00:00:00";
     if (statusLabel) {
-      statusLabel.textContent = data.is_working ? "WORKING" : (data.is_on_break ? "ON BREAK" : (data.is_complete ? "COMPLETED" : "NOT STARTED"));
-      statusLabel.className = data.is_working ? "badge present" : (data.is_on_break ? "badge warning" : "badge draft");
+      var state = data.state || (data.is_working ? "WORKING" : (data.is_on_break ? "ON_BREAK" : (data.is_complete ? "COMPLETED" : "NOT_STARTED")));
+      statusLabel.textContent = state === "ON_BREAK" ? "ON BREAK" : state;
+      statusLabel.className = state === "WORKING" ? "badge present" : (state === "ON_BREAK" ? "badge warning" : "badge draft");
     }
     if (historyBody && data.sessions) {
       historyBody.innerHTML = data.sessions.length ? data.sessions.map(function (row) {

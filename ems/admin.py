@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Attendance, AttendanceSession, AuditLog, Company, CompanyMembership, CompanySetting, Department, Designation, Employee, Job, LeaveRequest, Payroll, PerformanceReview, WorkSchedule
+from .models import Attendance, AttendanceSession, AuditLog, Company, CompanyHoliday, CompanyMembership, CompanySetting, Department, Designation, Employee, EmployeeSalary, Job, LeaveRequest, Payroll, PerformanceReview, WorkSchedule
 
 @admin.register(Employee)
 class EmployeeAdmin(admin.ModelAdmin):
@@ -59,4 +59,4 @@ class AuditLogAdmin(admin.ModelAdmin):
     def has_change_permission(self, request, obj=None): return False
     def has_delete_permission(self, request, obj=None): return False
 
-admin.site.register([Department, Designation, Job, PerformanceReview, CompanySetting, WorkSchedule])
+admin.site.register([Department, Designation, Job, PerformanceReview, CompanySetting, WorkSchedule, EmployeeSalary, CompanyHoliday])

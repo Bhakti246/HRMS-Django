@@ -7,28 +7,27 @@
       <h1>Payroll</h1>
       <p class="muted">Earnings, deductions, and attendance impact are calculated on the server.</p>
     </div>
-    {% if is_admin %}<a class="btn primary" href="{% url 'ems:payroll_add' %}">Run payroll</a>{% endif %}
+    {% if is_admin %}<div class="toolbar"><a class="btn" href="{% url 'ems:payroll_bulk' %}">Generate all drafts</a><a class="btn primary" href="{% url 'ems:payroll_add' %}">Run payroll</a></div>{% endif %}
   </div>
 
   <div class="table-wrap">
     <table>
-      <thead><tr><th>Employee</th><th>Period</th><th>Basic</th><th>HRA</th><th>Allowances</th><th>Deductions</th><th>Attendance</th><th>Net pay</th><th>Status</th>{% if is_admin %}<th>Actions</th>{% endif %}</tr></thead>
+      <thead><tr><th>Employee</th><th>Period</th><th>Gross</th><th>Worked</th><th>Overtime</th><th>Deductions</th><th>Net pay</th><th>Status</th>{% if is_admin %}<th>Actions</th>{% endif %}</tr></thead>
       <tbody>
         {% for p in records %}
           <tr>
             <td>{{ p.employee.full_name }}</td>
             <td>{{ p.pay_period|date:"F Y" }}</td>
-            <td>{{ p.basic_salary }}</td>
-            <td>{{ p.hra }}</td>
-            <td>{{ p.allowances }}</td>
-            <td>{{ p.deductions }}</td>
-            <td>{{ p.attendance_deduction }}</td>
-            <td><strong>{{ p.net_salary }}</strong></td>
+            <td>{{ p.gross_salary|default:p.basic_salary }}</td>
+            <td>{{ p.worked_hours }}h</td>
+            <td>{{ p.overtime_hours }}h</td>
+            <td>{{ p.total_deductions|default:p.deductions }}</td>
+            <td><strong>{{ p.net_pay|default:p.net_salary }}</strong></td>
             <td><span class="badge {{ p.status }}">{{ p.get_status_display }}</span></td>
-            {% if is_admin %}<td><a class="btn small" href="{% url 'ems:payroll_edit' p.pk %}">Edit</a></td>{% endif %}
+            {% if is_admin %}<td><a class="btn small" href="{% url 'ems:payroll_detail' p.pk %}">View</a>{% if p.status == "calculated" %}<form class="inline" method="post" action="{% url 'ems:payroll_status' p.pk 'approved' %}">{% csrf_token %}<button class="btn small primary">Approve</button></form>{% endif %}</td>{% endif %}
           </tr>
         {% empty %}
-          <tr><td colspan="10" class="empty">No payroll records have been run.</td></tr>
+          <tr><td colspan="9" class="empty">No payroll records have been run.</td></tr>
         {% endfor %}
       </tbody>
     </table>

@@ -47,6 +47,7 @@
             <td>{{ e.joining_date }}</td>
             <td>
               <a class="btn small" href="{% url 'ems:employee_edit' e.pk %}">Edit</a>
+              <a class="btn small" href="{% url 'ems:employee_salary' e.pk %}">Salary</a>
               <a class="btn danger small" href="{% url 'ems:employee_delete' e.pk %}">Deactivate</a>
             </td>
           </tr>

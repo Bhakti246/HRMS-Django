@@ -15,8 +15,9 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.utils.text import slugify
 from django.contrib.auth.models import User
-from .forms import AttendanceForm, CompanySetupForm, DepartmentForm, DesignationForm, EmployeeForm, JobForm, LeaveForm, PasswordChangeForm, PayrollForm, PerformanceForm, SettingForm, WorkScheduleForm
-from .models import Attendance, AttendanceSession, AuditLog, Company, CompanyMembership, CompanySetting, Department, Designation, Employee, Job, LeaveRequest, Payroll, PerformanceReview, UserAccountProfile, WorkSchedule
+from .forms import AttendanceForm, CompanySetupForm, DepartmentForm, DesignationForm, EmployeeForm, EmployeeSalaryForm, JobForm, LeaveForm, PasswordChangeForm, PayrollForm, PayrollPreviewForm, PerformanceForm, SettingForm, WorkScheduleForm
+from .models import Attendance, AttendanceSession, AuditLog, Company, CompanyMembership, CompanySetting, Department, Designation, Employee, EmployeeSalary, Job, LeaveRequest, Payroll, PerformanceReview, UserAccountProfile, WorkSchedule
+from .services.payroll import calculate_payroll, month_period
 
 MANAGEMENT_ROLES = {CompanyMembership.Role.OWNER, CompanyMembership.Role.HR_ADMIN, CompanyMembership.Role.HR_MANAGER}
 
@@ -84,6 +85,10 @@ def wants_json(request):
 
 def json_result(success, message, status=200, data=None, error_code=None):
     payload = {"success": success, "message": message, "data": data or {}}
+    if data:
+        for key in ("state", "server_now", "working_seconds", "break_seconds"):
+            if key in data:
+                payload[key] = data[key]
     if error_code:
         payload["error_code"] = error_code
     return JsonResponse(payload, status=status)
@@ -108,14 +113,21 @@ def attendance_payload(employee):
                 "punch_out": timezone.localtime(session.punch_out).strftime("%H:%M") if session.punch_out else "Working",
                 "duration": format_duration(session.duration),
             })
+    completed_work = attendance.completed_sessions_total if attendance else timedelta()
+    working_seconds = int(completed_work.total_seconds())
+    break_seconds = int(attendance.break_total.total_seconds()) if attendance else 0
+    state = "WORKING" if active_session else "ON_BREAK" if is_on_break else "COMPLETED" if attendance and attendance.check_out else "NOT_STARTED"
     return {
+        "state": state,
         "is_working": bool(active_session),
         "is_on_break": is_on_break,
         "is_complete": bool(attendance and attendance.check_out),
         "active_started_at": active_session.punch_in.isoformat() if active_session else "",
         "server_now": timezone.now().isoformat(),
-        "working_time": format_duration(attendance.sessions_total) if attendance else "00:00:00",
+        "working_time": format_duration(completed_work),
         "break_time": format_duration(attendance.break_total) if attendance else "00:00:00",
+        "working_seconds": working_seconds,
+        "break_seconds": break_seconds,
         "sessions": sessions,
     }
 
@@ -146,7 +158,7 @@ def dashboard(request):
             "server_now": timezone.now().isoformat(),
         }
         if context["today_attendance"]:
-            context["working_time"] = format_duration(context["today_attendance"].sessions_total)
+            context["working_time"] = format_duration(context["today_attendance"].completed_sessions_total)
             context["break_time"] = format_duration(context["today_attendance"].break_total)
         else:
             context["working_time"] = "00:00:00"
@@ -259,10 +271,13 @@ def profile(request):
     today = timezone.localdate()
     today_attendance = Attendance.objects.filter(company=request.company, employee=employee, date=today).prefetch_related("sessions").first()
     active_session = AttendanceSession.objects.filter(employee=employee, punch_out__isnull=True).select_related("attendance").first()
+    if today_attendance:
+        for session in today_attendance.sessions.all():
+            session.display_duration = format_duration(session.duration)
     return render(request, "ems/profile.html", {
         "employee": employee, "payroll": employee.payrolls.first(), "reviews": employee.reviews.all()[:5],
         "attendance": employee.attendance.prefetch_related("sessions")[:5], "today_attendance": today_attendance,
-        "active_session": active_session, "working_time": format_duration(today_attendance.sessions_total) if today_attendance else "00:00:00",
+        "active_session": active_session, "working_time": format_duration(today_attendance.completed_sessions_total) if today_attendance else "00:00:00",
         "break_time": format_duration(today_attendance.break_total) if today_attendance else "00:00:00",
         "server_now": timezone.localtime().isoformat(),
     })
@@ -312,7 +327,7 @@ def attendance_action(request):
             elif attendance and attendance.check_out:
                 message = "This attendance day is already complete."
                 status = 409; error_code = "ATTENDANCE_COMPLETED"
-            elif action == "punch_in" and last_punch_out and now < last_punch_out + timedelta(hours=12):
+            elif action == "punch_in" and not attendance and last_punch_out and now < last_punch_out + timedelta(hours=12):
                 eligible_at = timezone.localtime(last_punch_out + timedelta(hours=12))
                 message = "Your next attendance day opens at {} after the required 12-hour rest period.".format(eligible_at.strftime("%I:%M %p").lstrip("0"))
                 status = 409; error_code = "REST_PERIOD_ACTIVE"
@@ -411,6 +426,21 @@ def employee_delete(request, pk):
     return render(request,"ems/confirm_delete.html",{"object":employee,"cancel_url":"ems:employees","message":"Deactivate this employee? Their records will be preserved."})
 
 @admin_required
+def employee_salary(request, pk):
+    employee = get_object_or_404(Employee, pk=pk, company=request.company)
+    instance = EmployeeSalary.objects.filter(employee=employee, company=request.company).first() or EmployeeSalary(employee=employee, company=request.company)
+    form = EmployeeSalaryForm(request.POST or None, instance=instance)
+    if request.method == "POST" and form.is_valid():
+        salary = form.save(commit=False)
+        salary.employee = employee
+        salary.company = request.company
+        salary.save()
+        log_event(request, "employee.salary_updated", salary)
+        messages.success(request, "Salary structure saved.")
+        return redirect("ems:employees")
+    return render(request, "ems/form.html", {"form": form, "title": f"Salary structure · {employee.full_name}", "cancel_url": "ems:employees"})
+
+@admin_required
 def export_employees(request):
     response=HttpResponse(content_type="text/csv"); response["Content-Disposition"]='attachment; filename="employees.csv"'; writer=csv.writer(response); writer.writerow(["ID","Name","Department","Designation","Email","Status","Joining date"])
     for e in Employee.objects.filter(company=request.company).select_related("user","department","designation"): writer.writerow([e.employee_id,e.full_name,e.department,e.designation,e.user.email,e.get_status_display(),e.joining_date])
@@ -496,7 +526,91 @@ def payroll(request):
         records=records.filter(employee=employee)
     return render(request,"ems/payroll.html",{"records":records,"is_admin":is_admin(request.user, request.company)})
 @admin_required
-def payroll_form(request,pk=None): return crud_form(request,Payroll,PayrollForm,pk,"Edit Payroll" if pk else "Run Payroll","ems:payroll")
+def payroll_form(request, pk=None):
+    instance = get_object_or_404(Payroll, pk=pk, company=request.company) if pk else None
+    if instance and instance.status in {Payroll.Status.APPROVED, Payroll.Status.PAID} and request.method == "POST":
+        messages.error(request, "Approved or paid payroll cannot be edited.")
+        return redirect("ems:payroll")
+    form = PayrollPreviewForm(request.POST or None, company=request.company, initial={"employee": instance.employee if instance else None, "pay_period": instance.pay_period if instance else None})
+    calculation = None
+    if form.is_valid():
+        employee = form.cleaned_data["employee"]
+        period_start = form.cleaned_data["pay_period"]
+        period_end = month_period(period_start.year, period_start.month)[1]
+        calculation = calculate_payroll(employee, period_start, period_end)
+        if request.method == "POST":
+            payroll = instance or Payroll(employee=employee, company=request.company, pay_period=period_start)
+            payroll.employee = employee; payroll.company = request.company; payroll.pay_period = period_start
+            payroll.basic_salary = calculation.salary["basic_salary"]
+            payroll.hra = calculation.salary["hra"]; payroll.allowances = calculation.salary["allowances"]
+            payroll.deductions = calculation.deductions["fixed"]; payroll.bonus = calculation.salary["bonus"]
+            payroll.status = Payroll.Status.CALCULATED
+            payroll.working_days = calculation.summary["working_days"]; payroll.present_days = calculation.summary["present_days"]
+            payroll.absent_days = calculation.summary["absent_days"]; payroll.paid_leave_days = calculation.summary["paid_leave_days"]
+            payroll.unpaid_leave_days = calculation.summary["unpaid_leave_days"]; payroll.half_days = calculation.summary["half_days"]
+            payroll.required_hours = calculation.summary["required_hours"]; payroll.worked_hours = calculation.summary["worked_hours"]
+            payroll.overtime_hours = calculation.summary["overtime_hours"]; payroll.overtime_amount = calculation.earnings["overtime"]
+            payroll.attendance_deduction_snapshot = calculation.deductions["attendance"]; payroll.leave_deduction = calculation.deductions["leave"]
+            payroll.gross_salary = calculation.earnings["gross"]; payroll.total_deductions = calculation.deductions["total"]
+            payroll.net_pay = calculation.net_pay
+            payroll.salary_snapshot = {key: str(value) for key, value in calculation.salary.items()}
+            payroll.calculation_snapshot = {
+                "summary": {key: str(value) for key, value in calculation.summary.items()},
+                "breakdown": calculation.breakdown,
+            }
+            payroll.calculated_at = timezone.now(); payroll.save()
+            log_event(request, "payroll.calculated", payroll)
+            messages.success(request, "Payroll calculated and saved as a draft.")
+            return redirect("ems:payroll")
+    return render(request, "ems/payroll_form.html", {"form": form, "calculation": calculation, "title": "Run payroll"})
+
+@admin_required
+def payroll_bulk(request):
+    if request.method != "POST":
+        return render(request, "ems/payroll_bulk.html")
+    period = request.POST.get("pay_period", "")
+    try:
+        year, month = [int(value) for value in period.split("-")]
+        period_start, period_end = month_period(year, month)
+    except (ValueError, TypeError):
+        messages.error(request, "Choose a valid payroll month.")
+        return redirect("ems:payroll")
+    created = 0
+    for employee in Employee.objects.filter(company=request.company, status=Employee.Status.ACTIVE):
+        existing = Payroll.objects.filter(employee=employee, company=request.company, pay_period=period_start).first()
+        if existing and existing.status in {Payroll.Status.APPROVED, Payroll.Status.PAID}:
+            continue
+        calculation = calculate_payroll(employee, period_start, period_end)
+        Payroll.objects.update_or_create(employee=employee, company=request.company, pay_period=period_start, defaults={
+            "basic_salary": calculation.salary["basic_salary"], "hra": calculation.salary["hra"], "allowances": calculation.salary["allowances"], "deductions": calculation.deductions["fixed"], "bonus": calculation.salary["bonus"], "status": Payroll.Status.CALCULATED,
+            "working_days": calculation.summary["working_days"], "present_days": calculation.summary["present_days"], "absent_days": calculation.summary["absent_days"], "paid_leave_days": calculation.summary["paid_leave_days"], "unpaid_leave_days": calculation.summary["unpaid_leave_days"], "half_days": calculation.summary["half_days"], "required_hours": calculation.summary["required_hours"], "worked_hours": calculation.summary["worked_hours"], "overtime_hours": calculation.summary["overtime_hours"], "overtime_amount": calculation.earnings["overtime"], "attendance_deduction_snapshot": calculation.deductions["attendance"], "leave_deduction": calculation.deductions["leave"], "gross_salary": calculation.earnings["gross"], "total_deductions": calculation.deductions["total"], "net_pay": calculation.net_pay, "salary_snapshot": {key: str(value) for key, value in calculation.salary.items()}, "calculation_snapshot": {"summary": {key: str(value) for key, value in calculation.summary.items()}, "breakdown": calculation.breakdown}, "calculated_at": timezone.now(),
+        })
+        created += 1
+    messages.success(request, f"Generated {created} payroll drafts.")
+    return redirect("ems:payroll")
+
+@company_required
+def payroll_detail(request, pk):
+    payroll = get_object_or_404(Payroll, pk=pk, company=request.company)
+    if not is_admin(request.user, request.company) and payroll.employee.user_id != request.user.id:
+        return render(request, "403.html", status=403)
+    return render(request, "ems/payroll_detail.html", {"payroll": payroll, "breakdown": payroll.calculation_snapshot.get("breakdown", [])})
+
+@admin_required
+def payroll_status(request, pk, status):
+    payroll = get_object_or_404(Payroll, pk=pk, company=request.company)
+    if request.method != "POST" or status not in {Payroll.Status.APPROVED, Payroll.Status.PAID, Payroll.Status.CANCELLED}:
+        return HttpResponseForbidden("POST required")
+    if payroll.status == Payroll.Status.PAID:
+        messages.error(request, "Paid payroll cannot be changed.")
+    else:
+        payroll.status = status
+        if status == Payroll.Status.APPROVED: payroll.approved_at = timezone.now()
+        if status == Payroll.Status.PAID: payroll.payment_date = timezone.localdate()
+        payroll.save(update_fields=["status", "approved_at", "payment_date", "updated_at"])
+        log_event(request, f"payroll.{status}", payroll)
+        messages.success(request, f"Payroll marked {payroll.get_status_display()}.")
+    return redirect("ems:payroll")
 
 @admin_required
 def recruitment(request): return render(request,"ems/recruitment.html",{"jobs":Job.objects.filter(company=request.company).select_related("department")})
